@@ -2279,6 +2279,9 @@ export default function AdminDashboard() {
                       <p className="mt-1 text-muted-foreground">
                         In GitHub Developer Settings, open OAuth Apps and choose New OAuth App. Use these exact URLs:
                       </p>
+                      <div role="note" className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+                        <strong>Important:</strong> Your screenshot is the GitHub App setup page. This Playground currently uses a classic OAuth App, so create a separate app under <strong>OAuth Apps</strong>. Do not use the GitHub App ID, Client ID, or private key here; a private key is not needed for this setup.
+                      </div>
                       <div className="mt-3 space-y-3">
                         <div>
                           <Label>Homepage URL</Label>
@@ -2294,12 +2297,12 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                       <a
-                        href="https://github.com/settings/developers"
+                        href="https://github.com/settings/applications/new"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mt-3 inline-flex items-center gap-1 text-secondary hover:underline"
                       >
-                        Open GitHub Developer Settings <ExternalLink className="w-3.5 h-3.5" />
+                        Create a GitHub OAuth App <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                     </div>
 
