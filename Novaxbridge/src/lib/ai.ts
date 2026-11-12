@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { aiApi } from '@/lib/api-client';
 
 export type AIMode = 'cv_revamp' | 'cover_letter' | 'skill_gap' | 'project_polish';
 
@@ -93,7 +94,7 @@ export interface KnowledgeBaseEntry {
   updated_at: string;
 }
 
-/** Calls the `ai-assist` edge function for career tools (cv, cover letter, etc.). */
+/** Calls the server AI endpoint for career tools (CV, cover letter, etc.). */
 export async function callAIAssist(payload: AIAssistPayload): Promise<string> {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
@@ -102,13 +103,9 @@ export async function callAIAssist(payload: AIAssistPayload): Promise<string> {
     throw new Error('Please sign in to use AI assist.');
   }
 
-  const { data, error } = await supabase.functions.invoke('ai-assist', {
-    body: payload,
-  });
-
-  if (data?.error) throw new Error(data.error);
-  if (error) throw new Error(error.message || 'AI request failed');
-  return data?.result || '';
+  const { result, error } = await aiApi.assist<{ result?: string; error?: string }>(payload);
+  if (error) throw new Error(error);
+  return result || '';
 }
 
 export async function callTutorAI(payload: TutorPayload): Promise<string | TutorQuizResult> {
@@ -119,17 +116,10 @@ export async function callTutorAI(payload: TutorPayload): Promise<string | Tutor
     throw new Error('Please sign in to use AI Tutor.');
   }
 
-  const { data, error } = await supabase.functions.invoke('ai-assist', {
-    body: payload,
-  });
-
-  // Surface the actual error from the response body, not the generic HTTP wrapper
-  if (data?.error) throw new Error(data.error);
-  if (error) throw new Error(error.message || 'AI Tutor request failed');
-
-  // tutor_grade returns structured data, others return { result: "..." }
   if (payload.mode === 'tutor_grade') {
-    return data as TutorQuizResult;
+    return aiApi.assist<TutorQuizResult>(payload);
   }
-  return data?.result || '';
+  const { result, error } = await aiApi.assist<{ result?: string; error?: string }>(payload);
+  if (error) throw new Error(error);
+  return result || '';
 }

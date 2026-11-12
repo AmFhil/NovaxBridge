@@ -896,8 +896,8 @@ export async function adminAiInsight(
   params: Record<string, string>
 ): Promise<string> {
   const body = { mode, ...params };
-  const res = await aiApi.assist(body);
-  return res.data;
+  const { result } = await aiApi.assist<{ result: string }>(body);
+  return result;
 }
 
 // ── Admin API ──

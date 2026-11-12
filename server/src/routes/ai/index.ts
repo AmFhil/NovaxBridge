@@ -228,7 +228,7 @@ Weaknesses: ${(body.studentWeaknesses || []).join(', ') || 'none'}`;
   const messages = [
     { role: 'system', content: systemMessage },
     ...(body.messages || []).map((m) => ({
-      role: m.role === 'tutor' ? 'assistant' : (m.role as 'user' | 'assistant'),
+      role: m.role === 'tutor' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
       content: m.content,
     })),
   ];
@@ -260,7 +260,13 @@ async function handleTutorGrade(body: RequestBody): Promise<string> {
   });
 
   const score = Math.round((correctCount / body.questions.length) * 100);
-  return JSON.stringify({ score, correctCount, total: body.questions.length, results });
+  return JSON.stringify({
+    score,
+    correctCount,
+    total: body.questions.length,
+    feedback: `You got ${correctCount} of ${body.questions.length} questions correct. Review any missed answers and revisit those topics.`,
+    results,
+  });
 }
 
 // ── GET /ai/providers — list all providers with their configured status ──

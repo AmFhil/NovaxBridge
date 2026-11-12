@@ -50,6 +50,15 @@ export async function post<T = any>(path: string, body?: any): Promise<{ data: T
   return handleResponse(res);
 }
 
+export async function postRaw<T = any>(path: string, body?: any): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return handleResponse(res);
+}
+
 export async function patch<T = any>(path: string, body?: any): Promise<{ data: T; [key: string]: any }> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
@@ -225,7 +234,7 @@ export const playgroundApi = {
 // ── AI API helpers ──
 
 export const aiApi = {
-  assist: (data: { mode: string; [key: string]: any }) => post('/ai', data),
+  assist: <T = any>(data: { mode: string; [key: string]: any }) => postRaw<T>('/ai', data),
 };
 
 // ── Jobs API helpers ──
