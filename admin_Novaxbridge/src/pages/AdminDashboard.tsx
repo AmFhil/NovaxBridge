@@ -554,16 +554,14 @@ export default function AdminDashboard() {
   const loadAiKeys = async () => {
     setLoadingKeys(true);
     try {
-      const [keysResult, modelsResult, providersResult, settingsResult] = await Promise.all([
-        get<Record<string, string>>('/ai/keys'),
+      const [modelsResult, providersResult, settingsResult] = await Promise.all([
         get<Record<string, string>>('/ai/models').catch(() => ({ data: {} as Record<string, string> })),
         get<{ id: string; label: string; configured: boolean; active: boolean }[]>('/ai/providers'),
         get<Record<string, unknown>>('/admin/settings'),
       ]);
 
-      // Load API keys from /ai/keys
-      const keysData = keysResult.data || {};
-      setAiKeys(keysData);
+      // Secret values are write-only in the form; provider status reports whether one is saved.
+      setAiKeys({});
 
       // Load model overrides from /ai/models
       const modelsData = modelsResult.data || {};
@@ -2021,7 +2019,7 @@ export default function AdminDashboard() {
                                 size="sm"
                                 variant="outline"
                                 className="h-7 text-xs gap-1"
-                                disabled={testingProvider === key || !aiKeys[key]}
+                                disabled={testingProvider === key || (!aiKeys[key] && !status?.configured)}
                                 onClick={async () => {
                                   setTestingProvider(key);
                                   setTestResults((prev) => ({ ...prev, [key]: undefined as any }));
@@ -2055,7 +2053,7 @@ export default function AdminDashboard() {
                           </div>
                           <Input
                             type="password"
-                            placeholder={`${meta.label} API key...`}
+                            placeholder={status?.configured ? 'Key saved (enter a new key to replace)' : `${meta.label} API key...`}
                             value={aiKeys[key] || ''}
                             onChange={(e) => {
                               setAiKeys((prev) => ({ ...prev, [key]: e.target.value }));

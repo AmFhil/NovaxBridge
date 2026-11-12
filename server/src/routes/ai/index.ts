@@ -28,7 +28,12 @@ const PROVIDER_KEY_MAP: Record<AiProvider, { primary: string; fallback: string }
 
 function resolveEnvKey(provider: AiProvider): string {
   const { primary, fallback } = PROVIDER_KEY_MAP[provider];
-  return process.env[primary] || process.env[fallback] || '';
+  return process.env[primary]?.trim() || process.env[fallback]?.trim() || '';
+}
+
+function resolveApiKey(provider: AiProvider, dbKeys: Record<string, string>): string {
+  const dbKey = dbKeys[provider];
+  return (typeof dbKey === 'string' ? dbKey.trim() : '') || resolveEnvKey(provider);
 }
 
 async function getProviders(): Promise<Record<AiProvider, ProviderConfig>> {
@@ -38,37 +43,37 @@ async function getProviders(): Promise<Record<AiProvider, ProviderConfig>> {
   return {
     openrouter: {
       baseUrl: 'https://openrouter.ai/api/v1',
-      apiKey: dbKeys['openrouter'] || resolveEnvKey('openrouter'),
+      apiKey: resolveApiKey('openrouter', dbKeys),
       defaultModel: modelFor('openrouter', 'OPENROUTER_MODEL', 'google/gemini-2.0-flash-001'),
       label: 'OpenRouter',
     },
     mistral: {
       baseUrl: 'https://api.mistral.ai/v1',
-      apiKey: dbKeys['mistral'] || resolveEnvKey('mistral'),
+      apiKey: resolveApiKey('mistral', dbKeys),
       defaultModel: modelFor('mistral', 'MISTRAL_MODEL', 'mistral-large-latest'),
       label: 'Mistral AI',
     },
     openai: {
       baseUrl: 'https://api.openai.com/v1',
-      apiKey: dbKeys['openai'] || resolveEnvKey('openai'),
+      apiKey: resolveApiKey('openai', dbKeys),
       defaultModel: modelFor('openai', 'OPENAI_MODEL', 'gpt-4o-mini'),
       label: 'OpenAI',
     },
     groq: {
       baseUrl: 'https://api.groq.com/openai/v1',
-      apiKey: dbKeys['groq'] || resolveEnvKey('groq'),
+      apiKey: resolveApiKey('groq', dbKeys),
       defaultModel: modelFor('groq', 'GROQ_MODEL', 'llama-3.3-70b-versatile'),
       label: 'Groq',
     },
     google: {
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      apiKey: dbKeys['google'] || resolveEnvKey('google'),
+      apiKey: resolveApiKey('google', dbKeys),
       defaultModel: modelFor('google', 'GOOGLE_MODEL', 'gemini-2.0-flash'),
       label: 'Google Gemini',
     },
     togetherai: {
       baseUrl: 'https://api.together.xyz/v1',
-      apiKey: dbKeys['togetherai'] || resolveEnvKey('togetherai'),
+      apiKey: resolveApiKey('togetherai', dbKeys),
       defaultModel: modelFor('togetherai', 'TOGETHER_MODEL', 'meta-llama/Llama-3.3-70B-Instruct-Turbo'),
       label: 'Together AI',
     },
@@ -431,9 +436,19 @@ aiRouter.post('/keys', requireAuth, async (req: Request, res: Response) => {
     }
   }
   try {
+    const updatedKeys = { ...(await loadDbApiKeys()) };
+    for (const [provider, value] of Object.entries(keys)) {
+      if (typeof value !== 'string') {
+        res.status(400).json({ error: `API key for "${provider}" must be a string` });
+        return;
+      }
+      const trimmedValue = value.trim();
+      if (trimmedValue) updatedKeys[provider] = trimmedValue;
+    }
+
     const { error: upsertError } = await adminClient
       .from('site_settings')
-      .upsert({ key: 'ai_api_keys', value: keys }, { onConflict: 'key' });
+      .upsert({ key: 'ai_api_keys', value: updatedKeys }, { onConflict: 'key' });
     if (upsertError) throw new AppError(500, upsertError.message);
     invalidateKeyCache();
     res.json({ status: 'ok' });
