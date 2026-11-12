@@ -175,6 +175,17 @@ export default function AdminDashboard() {
   const [academyApplications, setAcademyApplications] = useState<any[]>([]);
   const [loadingApplications, setLoadingApplications] = useState(false);
   const [processingApp, setProcessingApp] = useState<string | null>(null);
+  const [githubOAuthConfig, setGithubOAuthConfig] = useState({
+    clientId: '',
+    clientSecretConfigured: false,
+    callbackUrl: '',
+    homepageUrl: '',
+    encryptionKeyConfigured: false,
+  });
+  const [githubClientSecret, setGithubClientSecret] = useState('');
+  const [loadingGithubConfig, setLoadingGithubConfig] = useState(false);
+  const [savingGithubConfig, setSavingGithubConfig] = useState(false);
+  const [githubConfigError, setGithubConfigError] = useState<string | null>(null);
 
   // Payment Gateway config
   const [paymentGateways, setPaymentGateways] = useState<Record<string, { public_key: string; secret_key: string; enabled: boolean }>>({});
@@ -437,6 +448,7 @@ export default function AdminDashboard() {
       setPayouts(ptRes);
       loadAiKeys();
       loadAcademyConfig();
+      loadGithubConfig();
       loadApplications();
       loadPaymentConfig();
       loadServiceFee();
@@ -693,6 +705,42 @@ export default function AdminDashboard() {
       toast.error(error instanceof Error ? error.message : 'Failed to save academy settings');
     } finally {
       setSavingAcademy(false);
+    }
+  };
+
+  const loadGithubConfig = async () => {
+    setLoadingGithubConfig(true);
+    setGithubConfigError(null);
+    try {
+      const result = await get<typeof githubOAuthConfig>('/github/admin-config');
+      setGithubOAuthConfig(result.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load GitHub configuration';
+      setGithubConfigError(message);
+      toast.error(`Could not load GitHub configuration: ${message}`);
+    } finally {
+      setLoadingGithubConfig(false);
+    }
+  };
+
+  const saveGithubConfig = async () => {
+    if (!githubOAuthConfig.clientId.trim() || !githubClientSecret.trim()) {
+      toast.error('Enter both the GitHub OAuth Client ID and Client Secret');
+      return;
+    }
+    setSavingGithubConfig(true);
+    try {
+      const result = await patch<typeof githubOAuthConfig>('/github/admin-config', {
+        clientId: githubOAuthConfig.clientId.trim(),
+        clientSecret: githubClientSecret.trim(),
+      });
+      setGithubOAuthConfig(result.data);
+      setGithubClientSecret('');
+      toast.success('GitHub OAuth credentials saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save GitHub OAuth credentials');
+    } finally {
+      setSavingGithubConfig(false);
     }
   };
 
@@ -2188,6 +2236,124 @@ export default function AdminDashboard() {
                     {savingAcademy ? 'Saving...' : 'Save Academy Settings'}
                   </Button>
                 </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Key className="w-5 h-5 text-secondary" />
+                  GitHub Playground Setup
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Configure the OAuth app used when learners connect GitHub and create private coding workspaces.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {loadingGithubConfig ? (
+                  <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground" aria-live="polite">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading GitHub configuration...
+                  </div>
+                ) : githubConfigError ? (
+                  <div role="alert" className="flex flex-col items-start gap-3 text-sm text-destructive">
+                    <p>Could not load GitHub configuration: {githubConfigError}</p>
+                    <Button type="button" variant="outline" onClick={loadGithubConfig}>
+                      Retry loading settings
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant={githubOAuthConfig.clientSecretConfigured ? 'secondary' : 'destructive'}>
+                        {githubOAuthConfig.clientSecretConfigured ? 'OAuth credentials configured' : 'OAuth credentials missing'}
+                      </Badge>
+                      <Badge variant={githubOAuthConfig.encryptionKeyConfigured ? 'secondary' : 'destructive'}>
+                        {githubOAuthConfig.encryptionKeyConfigured ? 'Token encryption key configured' : 'Token encryption key missing in Render'}
+                      </Badge>
+                    </div>
+
+                    <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+                      <h3 className="font-semibold">1. Create a GitHub OAuth App</h3>
+                      <p className="mt-1 text-muted-foreground">
+                        In GitHub Developer Settings, open OAuth Apps and choose New OAuth App. Use these exact URLs:
+                      </p>
+                      <div className="mt-3 space-y-3">
+                        <div>
+                          <Label>Homepage URL</Label>
+                          <code className="mt-1 block break-all rounded bg-background p-2 text-xs">
+                            {githubOAuthConfig.homepageUrl}
+                          </code>
+                        </div>
+                        <div>
+                          <Label>Authorization callback URL</Label>
+                          <code className="mt-1 block break-all rounded bg-background p-2 text-xs">
+                            {githubOAuthConfig.callbackUrl}
+                          </code>
+                        </div>
+                      </div>
+                      <a
+                        href="https://github.com/settings/developers"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-3 inline-flex items-center gap-1 text-secondary hover:underline"
+                      >
+                        Open GitHub Developer Settings <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="github-oauth-client-id">OAuth Client ID</Label>
+                        <Input
+                          id="github-oauth-client-id"
+                          value={githubOAuthConfig.clientId}
+                          onChange={(e) => setGithubOAuthConfig((prev) => ({ ...prev, clientId: e.target.value }))}
+                          autoComplete="off"
+                          placeholder="Copy from your GitHub OAuth App"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="github-oauth-client-secret">OAuth Client Secret</Label>
+                        <Input
+                          id="github-oauth-client-secret"
+                          type="password"
+                          value={githubClientSecret}
+                          onChange={(e) => setGithubClientSecret(e.target.value)}
+                          autoComplete="new-password"
+                          placeholder={githubOAuthConfig.clientSecretConfigured ? 'Saved — enter a replacement only' : 'Copy from your GitHub OAuth App'}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Enter both values from the same OAuth App. The Client Secret field clears after saving and is not prefilled.
+                    </p>
+                    <Button
+                      onClick={saveGithubConfig}
+                      disabled={savingGithubConfig || !githubOAuthConfig.clientId.trim() || !githubClientSecret.trim()}
+                      className="gap-1.5"
+                    >
+                      {savingGithubConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      {savingGithubConfig ? 'Saving...' : 'Save GitHub OAuth Credentials'}
+                    </Button>
+
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+                      <h3 className="font-semibold">2. Set the token encryption key in Render</h3>
+                      <p className="mt-1 text-muted-foreground">
+                        This key must stay stable. Changing it makes already-saved GitHub connections unreadable, so connected users will need to connect again.
+                      </p>
+                      <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
+                        <li>Generate a value with <code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code>.</li>
+                        <li>In Render, open your backend web service, then Environment.</li>
+                        <li>Add <code>GITHUB_TOKEN_ENCRYPTION_KEY</code> with the generated value and redeploy.</li>
+                      </ol>
+                    </div>
+
+                    <p className="text-sm text-muted-foreground">
+                      3. Save the OAuth credentials above, then connect GitHub from the Playground. The app requests <code>repo</code> and <code>user</code> access so it can create private workspace repositories.
+                    </p>
+                  </>
                 )}
               </CardContent>
             </Card>

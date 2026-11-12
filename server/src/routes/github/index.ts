@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { adminClient } from '../../lib/supabase-admin.js';
 import { AppError } from '../../middleware/error.js';
+import { requireAdmin } from '../../middleware/auth.js';
 import pino from 'pino';
 
 export const githubRouter: Router = Router();
@@ -27,10 +28,11 @@ interface GitHubUser {
 
 /** Read GitHub OAuth credentials from site_settings (admin-configurable) with env fallback. */
 async function getGitHubOAuthConfig(): Promise<{ clientId: string; clientSecret: string }> {
-  const { data } = await adminClient
+  const { data, error } = await adminClient
     .from('site_settings')
     .select('key, value')
     .in('key', ['github_oauth_client_id', 'github_oauth_client_secret']);
+  if (error) throw new AppError(500, 'Failed to load GitHub OAuth configuration');
 
   const settings: Record<string, string> = {};
   if (data) {
@@ -137,6 +139,47 @@ githubRouter.get('/url', async (req: Request, res: Response) => {
   const redirectUri = process.env.GITHUB_REDIRECT_URI || `https://${req.get('host')}/api/github/callback`;
   const url = `https://github.com/login/oauth/authorize?client_id=${config.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=repo,user&state=${req.user!.id}`;
   res.json({ data: { url } });
+});
+
+// GET /github/admin-config — return safe setup metadata for administrators
+githubRouter.get('/admin-config', requireAdmin, async (req: Request, res: Response) => {
+  const config = await getGitHubOAuthConfig();
+  res.json({
+    data: {
+      clientId: config.clientId,
+      clientSecretConfigured: Boolean(config.clientSecret),
+      callbackUrl: process.env.GITHUB_REDIRECT_URI || `https://${req.get('host')}/api/github/callback`,
+      homepageUrl: process.env.CLIENT_URL || 'https://thebridgeapp.vercel.app',
+      encryptionKeyConfigured: Boolean(process.env.GITHUB_TOKEN_ENCRYPTION_KEY?.trim()),
+    },
+  });
+});
+
+// PATCH /github/admin-config — update OAuth credentials as a matched pair
+githubRouter.patch('/admin-config', requireAdmin, async (req: Request, res: Response) => {
+  const { clientId, clientSecret } = req.body || {};
+  if (typeof clientId !== 'string' || !clientId.trim() ||
+      typeof clientSecret !== 'string' || !clientSecret.trim()) {
+    throw new AppError(400, 'Enter both the GitHub OAuth Client ID and Client Secret');
+  }
+
+  const { error } = await adminClient
+    .from('site_settings')
+    .upsert([
+      { key: 'github_oauth_client_id', value: clientId.trim() },
+      { key: 'github_oauth_client_secret', value: clientSecret.trim() },
+    ], { onConflict: 'key' });
+  if (error) throw new AppError(500, 'Failed to save GitHub OAuth credentials');
+
+  res.json({
+    data: {
+      clientId: clientId.trim(),
+      clientSecretConfigured: true,
+      callbackUrl: process.env.GITHUB_REDIRECT_URI || `https://${req.get('host')}/api/github/callback`,
+      homepageUrl: process.env.CLIENT_URL || 'https://thebridgeapp.vercel.app',
+      encryptionKeyConfigured: Boolean(process.env.GITHUB_TOKEN_ENCRYPTION_KEY?.trim()),
+    },
+  });
 });
 
 // POST /github/connect — exchange code for token, store encrypted
