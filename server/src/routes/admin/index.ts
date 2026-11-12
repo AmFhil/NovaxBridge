@@ -517,7 +517,8 @@ adminRouter.patch('/settings',
   auditLog('update_settings', 'site_settings', (req) => null),
   async (req: Request, res: Response) => {
     const { key, value } = req.body;
-    await adminClient.from('site_settings').upsert({ key, value }, { onConflict: 'key' });
+    const { error } = await adminClient.from('site_settings').upsert({ key, value }, { onConflict: 'key' });
+    if (error) throw new AppError(500, error.message);
     res.json({ data: { key, value } });
   }
 );
@@ -530,12 +531,10 @@ adminRouter.patch('/settings/batch',
     const entries = Object.entries(settings);
     if (entries.length === 0) throw new AppError(400, 'No settings provided');
 
-    const results: Record<string, unknown> = {};
-    for (const [key, value] of entries) {
-      await adminClient.from('site_settings').upsert({ key, value }, { onConflict: 'key' });
-      results[key] = value;
-    }
-    res.json({ data: results });
+    const rows = entries.map(([key, value]) => ({ key, value }));
+    const { error } = await adminClient.from('site_settings').upsert(rows, { onConflict: 'key' });
+    if (error) throw new AppError(500, error.message);
+    res.json({ data: settings });
   }
 );
 

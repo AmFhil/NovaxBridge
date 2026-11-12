@@ -17,6 +17,160 @@ import { toast } from 'sonner';
 import { callTutorAI, TutorMessage, TutorQuestion, TutorQuizResult } from '@/lib/ai';
 import { TutorSession, KnowledgeBaseEntry } from '@/lib/ai';
 
+function renderTutorInline(text: string, keyPrefix: string): React.ReactNode[] {
+  const tokens = text.split(/(`[^`]+`|\*\*.+?\*\*|~~.+?~~|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g);
+  return tokens.map((token, index) => {
+    const key = `${keyPrefix}-${index}`;
+    if (token.startsWith('`') && token.endsWith('`')) {
+      return <code key={key} className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{token.slice(1, -1)}</code>;
+    }
+    if (token.startsWith('**') && token.endsWith('**')) {
+      return <strong key={key}>{renderTutorInline(token.slice(2, -2), key)}</strong>;
+    }
+    if (token.startsWith('~~') && token.endsWith('~~')) {
+      return <del key={key}>{renderTutorInline(token.slice(2, -2), key)}</del>;
+    }
+    if (token.startsWith('*') && token.endsWith('*')) {
+      return <em key={key}>{renderTutorInline(token.slice(1, -1), key)}</em>;
+    }
+
+    const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (link) {
+      const href = link[2].trim();
+      const isSafe = /^(https?:\/\/|mailto:|\/(?!\/)|\.{1,2}\/|#)/i.test(href);
+      if (isSafe) {
+        const external = /^https?:\/\//i.test(href);
+        return (
+          <a
+            key={key}
+            href={href}
+            target={external ? '_blank' : undefined}
+            rel={external ? 'noopener noreferrer' : undefined}
+            className="text-secondary underline underline-offset-2"
+          >
+            {renderTutorInline(link[1], key)}
+          </a>
+        );
+      }
+      return link[1];
+    }
+    return token;
+  });
+}
+
+function TutorMarkdown({ content }: { content: string }) {
+  const blocks: React.ReactNode[] = [];
+  let paragraph: string[] = [];
+  let listType: 'ul' | 'ol' | null = null;
+  let listItems: string[] = [];
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    const current = paragraph;
+    paragraph = [];
+    const key = `paragraph-${blocks.length}`;
+    blocks.push(
+      <p key={key} className="my-2 first:mt-0 last:mb-0">
+        {current.flatMap((line, index) => [
+          ...renderTutorInline(line, `${key}-${index}`),
+          ...(index < current.length - 1 ? [<br key={`${key}-break-${index}`} />] : []),
+        ])}
+      </p>
+    );
+  };
+
+  const flushList = () => {
+    if (!listType || listItems.length === 0) return;
+    const key = `list-${blocks.length}`;
+    const items = listItems;
+    const List = listType;
+    blocks.push(
+      <List key={key} className={`${listType === 'ol' ? 'list-decimal' : 'list-disc'} my-2 space-y-1 pl-5`}>
+        {items.map((item, index) => (
+          <li key={`${key}-${index}`}>{renderTutorInline(item, `${key}-${index}`)}</li>
+        ))}
+      </List>
+    );
+    listType = null;
+    listItems = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('```')) {
+      flushParagraph();
+      flushList();
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      blocks.push(
+        <pre key={`code-${blocks.length}`} className="my-3 overflow-x-auto rounded-lg bg-background p-3 text-xs">
+          <code className="whitespace-pre font-mono">{codeLines.join('\n')}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const heading = trimmed.match(/^#{1,6}\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push(
+        <h3 key={`heading-${blocks.length}`} className="my-2 text-base font-semibold">
+          {renderTutorInline(heading[1], `heading-${blocks.length}`)}
+        </h3>
+      );
+      continue;
+    }
+
+    const unorderedItem = trimmed.match(/^[-*+]\s+(.+)$/);
+    const orderedItem = trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (unorderedItem || orderedItem) {
+      flushParagraph();
+      const nextListType = orderedItem ? 'ol' : 'ul';
+      if (listType && listType !== nextListType) flushList();
+      listType = nextListType;
+      listItems.push((orderedItem || unorderedItem)![1]);
+      continue;
+    }
+
+    flushList();
+    const quote = trimmed.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      blocks.push(
+        <blockquote key={`quote-${blocks.length}`} className="my-2 border-l-2 border-border pl-3 italic text-muted-foreground">
+          {renderTutorInline(quote[1], `quote-${blocks.length}`)}
+        </blockquote>
+      );
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+
+  return (
+    <div className="min-w-0 break-words text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+      {blocks}
+    </div>
+  );
+}
+
 export default function TutorChat() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -45,7 +199,7 @@ export default function TutorChat() {
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
   const [isGrading, setIsGrading] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -90,8 +244,12 @@ export default function TutorChat() {
   }, [user, id, navigate]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const messagesContainer = messagesContainerRef.current;
+    messagesContainer?.scrollTo({
+      top: messagesContainer.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [messages, isSending]);
 
   const saveMessage = async (role: TutorMessage['role'], content: string) => {
     await supabase.from('tutor_messages').insert({
@@ -242,7 +400,7 @@ export default function TutorChat() {
 
   return (
     <div className="min-h-screen pt-20 pb-4 px-4">
-      <div className="container mx-auto max-w-6xl h-[calc(100vh-8rem)] flex flex-col">
+      <div className="container mx-auto max-w-6xl h-[calc(100dvh-8rem)] min-h-0 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between mb-4 flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -342,7 +500,7 @@ export default function TutorChat() {
                     <Loader2 className="w-6 h-6 animate-spin text-secondary" />
                   </div>
                 ) : reflection ? (
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed">{reflection}</div>
+                  <TutorMarkdown content={reflection} />
                 ) : (
                   <p className="text-muted-foreground">No reflection generated yet.</p>
                 )}
@@ -414,8 +572,8 @@ export default function TutorChat() {
                         {quizResult.correctCount} of {quizResult.total} correct
                       </p>
                     </div>
-                    <div className="bg-muted rounded-lg p-4 text-sm leading-relaxed whitespace-pre-wrap">
-                      {quizResult.feedback}
+                    <div className="bg-muted rounded-lg p-4">
+                      <TutorMarkdown content={quizResult.feedback} />
                     </div>
                     <Button variant="outline" onClick={handleGenerateQuiz} className="w-full">
                       <RefreshCw className="w-4 h-4 mr-2" />
@@ -429,7 +587,7 @@ export default function TutorChat() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-4 mb-4 px-2">
+        <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 mb-4 px-2">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <Sparkles className="w-12 h-12 text-secondary mb-4 opacity-50" />
@@ -455,7 +613,11 @@ export default function TutorChat() {
                       Tutor
                     </div>
                   )}
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  {msg.role === 'tutor' ? (
+                    <TutorMarkdown content={msg.content} />
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                  )}
                 </div>
               </div>
             ))
@@ -474,7 +636,6 @@ export default function TutorChat() {
               </div>
             </div>
           )}
-          <div ref={messagesEndRef} />
         </div>
 
         {/* Input */}

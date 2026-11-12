@@ -38,9 +38,15 @@ const DEFAULT_CONFIG: SiteConfig = {
   api_keys: { preferred: '' },
 };
 
+function mergeSection<T extends object>(defaults: T, value: unknown): T {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...defaults };
+  return { ...defaults, ...value };
+}
+
 export default function SiteSettingsTab() {
   const [config, setConfig] = useState<SiteConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -101,23 +107,54 @@ export default function SiteSettingsTab() {
 
   const loadConfig = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${API_BASE}/site-config`);
-      if (res.ok) {
-        const json = await res.json();
-        if (json?.data) {
-          const raw = json.data as Record<string, unknown>;
-          // api_keys may be old format (flat booleans) — normalise to { preferred: '' }
-          const apiKeys = (raw.api_keys as Record<string, unknown>) || {};
-          const normalised = typeof apiKeys.preferred === 'string' ? apiKeys : { preferred: '' };
-          // Ensure preferred is a valid provider ID — invalid values (e.g. env var names) get reset
-          if (normalised.preferred && !VALID_PROVIDER_IDS.includes(normalised.preferred as any)) {
-            normalised.preferred = '';
-          }
-          setConfig({ ...DEFAULT_CONFIG, ...raw, api_keys: normalised } as SiteConfig);
-        }
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.error || `Failed to load site settings (${res.status})`);
       }
-    } catch { /* silent */ }
+      if (!json || !Object.prototype.hasOwnProperty.call(json, 'data')) {
+        throw new Error('The server returned an invalid site settings response');
+      }
+
+      if (json.data == null) {
+        setConfig(DEFAULT_CONFIG);
+      } else if (typeof json.data === 'object' && !Array.isArray(json.data)) {
+        const raw = json.data as Record<string, unknown>;
+        const nav = mergeSection(DEFAULT_CONFIG.nav, raw.nav);
+        const footer = mergeSection(DEFAULT_CONFIG.footer, raw.footer);
+        const apiKeys = mergeSection(DEFAULT_CONFIG.api_keys, raw.api_keys);
+        const preferred = VALID_PROVIDER_IDS.some((id) => id === apiKeys.preferred)
+          ? apiKeys.preferred
+          : '';
+
+        setConfig({
+          ...DEFAULT_CONFIG,
+          brand: mergeSection(DEFAULT_CONFIG.brand, raw.brand),
+          hero: mergeSection(DEFAULT_CONFIG.hero, raw.hero),
+          nav: {
+            ...nav,
+            links: Array.isArray(nav.links) ? nav.links : DEFAULT_CONFIG.nav.links,
+          },
+          footer: {
+            ...footer,
+            columns: Array.isArray(footer.columns) ? footer.columns : DEFAULT_CONFIG.footer.columns,
+          },
+          social: mergeSection(DEFAULT_CONFIG.social, raw.social),
+          meta: mergeSection(DEFAULT_CONFIG.meta, raw.meta),
+          admin_panel_url: typeof raw.admin_panel_url === 'string' ? raw.admin_panel_url : DEFAULT_CONFIG.admin_panel_url,
+          main_site_url: typeof raw.main_site_url === 'string' ? raw.main_site_url : DEFAULT_CONFIG.main_site_url,
+          api_keys: { preferred },
+        });
+      } else {
+        throw new Error('Saved site settings have an invalid format');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load site settings';
+      setLoadError(message);
+      toast.error(`Could not load saved site settings: ${message}`);
+    }
     finally { setLoading(false); }
   };
 
@@ -206,6 +243,21 @@ export default function SiteSettingsTab() {
     );
   }
 
+  if (loadError) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-start gap-3 py-8">
+          <p role="alert" className="text-sm text-destructive">
+            Saved site settings could not be loaded: {loadError}
+          </p>
+          <Button type="button" variant="outline" onClick={loadConfig}>
+            Retry loading settings
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       {/* Hidden file input for image uploads */}
@@ -222,7 +274,7 @@ export default function SiteSettingsTab() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Site Settings</CardTitle>
-          <Button onClick={saveConfig} disabled={saving} className="gap-1.5">
+          <Button onClick={saveConfig} disabled={saving || loading || Boolean(loadError)} className="gap-1.5">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Saving...' : 'Save All'}
           </Button>
@@ -394,7 +446,7 @@ export default function SiteSettingsTab() {
         </section>
 
         <div className="pt-4 border-t">
-          <Button onClick={saveConfig} disabled={saving} className="gap-1.5">
+          <Button onClick={saveConfig} disabled={saving || loading || Boolean(loadError)} className="gap-1.5">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Saving...' : 'Save All'}
           </Button>

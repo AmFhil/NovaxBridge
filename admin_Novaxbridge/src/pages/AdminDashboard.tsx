@@ -170,6 +170,8 @@ export default function AdminDashboard() {
     platform_fee_percent: 5,
   });
   const [savingAcademy, setSavingAcademy] = useState(false);
+  const [academyConfigLoaded, setAcademyConfigLoaded] = useState(false);
+  const [academyConfigLoadError, setAcademyConfigLoadError] = useState<string | null>(null);
   const [academyApplications, setAcademyApplications] = useState<any[]>([]);
   const [loadingApplications, setLoadingApplications] = useState(false);
   const [processingApp, setProcessingApp] = useState<string | null>(null);
@@ -662,31 +664,30 @@ export default function AdminDashboard() {
   };
 
   const loadAcademyConfig = async () => {
+    setAcademyConfigLoaded(false);
+    setAcademyConfigLoadError(null);
     try {
-      const { data } = await supabase
-        .from('site_settings')
-        .select('value')
-        .eq('key', 'academy_config')
-        .maybeSingle();
-      if (data?.value && typeof data.value === 'object') {
-        setAcademyConfig((prev) => ({ ...prev, ...(data.value as Partial<typeof prev>) }));
+      const result = await get<Record<string, unknown>>('/admin/settings');
+      const value = result.data?.academy_config;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        setAcademyConfig((prev) => ({ ...prev, ...(value as Partial<typeof prev>) }));
       }
-    } catch { /* ignore */ }
+      setAcademyConfigLoaded(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load academy settings';
+      setAcademyConfigLoadError(message);
+      toast.error(`Could not load academy settings: ${message}`);
+    }
   };
 
   const saveAcademyConfig = async () => {
+    if (!academyConfigLoaded) {
+      toast.error('Wait until saved academy settings finish loading');
+      return;
+    }
     setSavingAcademy(true);
     try {
-      const { data: existing } = await supabase
-        .from('site_settings')
-        .select('id')
-        .eq('key', 'academy_config')
-        .maybeSingle();
-      if (existing) {
-        await supabase.from('site_settings').update({ value: academyConfig }).eq('key', 'academy_config');
-      } else {
-        await supabase.from('site_settings').insert({ key: 'academy_config', value: academyConfig });
-      }
+      await patch('/admin/settings', { key: 'academy_config', value: academyConfig });
       toast.success('Academy settings saved');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save academy settings');
@@ -2099,6 +2100,19 @@ export default function AdminDashboard() {
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><GraduationCap className="w-5 h-5 text-secondary" /> Academy Settings</CardTitle></CardHeader>
               <CardContent>
+                {academyConfigLoadError ? (
+                  <div role="alert" className="flex flex-col items-start gap-3 text-sm text-destructive">
+                    <p>Could not load saved academy settings: {academyConfigLoadError}</p>
+                    <Button type="button" variant="outline" onClick={loadAcademyConfig}>
+                      Retry loading settings
+                    </Button>
+                  </div>
+                ) : !academyConfigLoaded ? (
+                  <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground" aria-live="polite">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading saved academy settings...
+                  </div>
+                ) : (
                 <div className="space-y-6 max-w-xl">
 
                   {/* Master toggle */}
@@ -2169,11 +2183,12 @@ export default function AdminDashboard() {
                   </div>
 
                   {/* Save button */}
-                  <Button onClick={saveAcademyConfig} disabled={savingAcademy} className="gap-1.5">
+                  <Button onClick={saveAcademyConfig} disabled={savingAcademy || !academyConfigLoaded} className="gap-1.5">
                     {savingAcademy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     {savingAcademy ? 'Saving...' : 'Save Academy Settings'}
                   </Button>
                 </div>
+                )}
               </CardContent>
             </Card>
 
