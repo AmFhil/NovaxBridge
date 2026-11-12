@@ -446,20 +446,22 @@ export function setupVideoCallSignaling(
           // Notification creation is best-effort
         }
 
-        // Enqueue push notification for offline callee
-        try {
-          await notificationQueue.add('push:call', {
-            type: 'push:call',
-            calleeUserId: to,
-            callerName: callerInfo.displayName,
-            roomId,
-            roomType: 'P2P',
-          }, {
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 5000 },
-          });
-        } catch {
-          // Push notification delivery is best-effort
+        // Enqueue push notification for offline callee when Redis is configured
+        if (notificationQueue) {
+          try {
+            await notificationQueue.add('push:call', {
+              type: 'push:call',
+              calleeUserId: to,
+              callerName: callerInfo.displayName,
+              roomId,
+              roomType: 'P2P',
+            }, {
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 5000 },
+            });
+          } catch {
+            // Push notification delivery is best-effort
+          }
         }
 
         socket.emit('call:unavailable', { roomId } as any);

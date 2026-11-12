@@ -210,7 +210,7 @@ Create `.env` files in each workspace:
 ```
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-REDIS_URL=your_redis_url
+REDIS_URL=your_redis_url  # optional: leave unset to disable BullMQ background notifications
 PORT=4001
 ```
 

@@ -5,17 +5,24 @@ import { sendPushNotification, PushPayload } from '../lib/webpush.js';
 
 const logger = pino({ name: 'notification-worker' });
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const connection = { url: REDIS_URL };
+const REDIS_URL = process.env.REDIS_URL?.trim();
 
 // ── Queue ──
-export const notificationQueue = new Queue('notifications', { connection });
-notificationQueue.on('error', (err) => {
+export const notificationQueue = REDIS_URL
+  ? new Queue('notifications', { connection: { url: REDIS_URL } })
+  : null;
+notificationQueue?.on('error', (err) => {
   logger.error({ err: err.message }, 'Notification queue error (Redis down?)');
 });
 
 // ── Worker ──
 export function startNotificationWorker(): void {
+  if (!notificationQueue || !REDIS_URL) {
+    logger.info('Notification worker disabled — REDIS_URL not configured');
+    return;
+  }
+
+  const connection = { url: REDIS_URL };
   const worker = new Worker(
     'notifications',
     async (job: Job) => {
